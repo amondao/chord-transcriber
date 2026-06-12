@@ -1,0 +1,11 @@
+# Render Blueprint — https://render.com/docs/blueprint-spec
+# Render の「New +」→「Blueprint」でこのリポジトリを選ぶと、
+# 以下の設定で自動的に Web サービスが作成されます。
+services:
+  - type: web
+    name: chord-transcriber
+    runtime: docker          # ルートの Dockerfile を使用（ffmpeg/gunicorn 込み）
+    plan: free               # 無料プラン（512MB・スリープあり）
+    region: singapore        # 日本から近いリージョン
+    healthCheckPath: /
+    autoDeploy: true         # git push で自動再デプロイ
