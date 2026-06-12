@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>コード採譜 — ディグリーネーム書き起こし</title>
+<style>
+  :root{
+    --bg1:#1a1633; --bg2:#0f1024; --card:#211c44; --card2:#2a2356;
+    --accent:#8b7bff; --accent2:#5ad1e6; --text:#ece9ff; --muted:#9a93c7;
+    --major:#6ee7b7; --minor:#fca5e0; --other:#fcd34d;
+    --radius:16px;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{
+    font-family:"Segoe UI","Hiragino Kaku Gothic ProN","Meiryo",sans-serif;
+    background:radial-gradient(1200px 600px at 70% -10%, #3a2d7a 0%, transparent 60%),
+               linear-gradient(160deg,var(--bg1),var(--bg2));
+    color:var(--text); min-height:100vh; padding:32px 16px;
+  }
+  .wrap{max-width:880px;margin:0 auto}
+  header{text-align:center;margin-bottom:28px}
+  header h1{font-size:32px;letter-spacing:.02em}
+  header p{color:var(--muted);margin-top:6px}
+  .card{
+    background:linear-gradient(180deg,var(--card),var(--bg2));
+    border:1px solid rgba(255,255,255,.08);
+    border-radius:var(--radius); padding:24px; margin-bottom:20px;
+    box-shadow:0 10px 40px rgba(0,0,0,.35);
+  }
+  .drop{
+    border:2px dashed rgba(139,123,255,.5); border-radius:var(--radius);
+    padding:40px 20px; text-align:center; cursor:pointer; transition:.2s;
+  }
+  .drop:hover,.drop.over{background:rgba(139,123,255,.12);border-color:var(--accent)}
+  .drop .icon{font-size:44px}
+  .drop .name{margin-top:10px;color:var(--accent2);font-weight:600;word-break:break-all}
+  .opts{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:18px}
+  .opt label{display:block;font-size:13px;color:var(--muted);margin-bottom:6px}
+  input[type=text],select{
+    width:100%;padding:10px 12px;border-radius:10px;border:1px solid rgba(255,255,255,.12);
+    background:var(--bg2);color:var(--text);font-size:14px;
+  }
+  input[type=range]{width:100%}
+  .btn{
+    display:block;width:100%;margin-top:18px;padding:14px;border:none;border-radius:12px;
+    background:linear-gradient(90deg,var(--accent),var(--accent2));
+    color:#11102a;font-size:16px;font-weight:700;cursor:pointer;transition:.2s;
+  }
+  .btn:hover{filter:brightness(1.08)}
+  .btn:disabled{opacity:.5;cursor:not-allowed}
+  .hidden{display:none}
+  .loading{text-align:center;padding:30px}
+  .spinner{
+    width:42px;height:42px;border:4px solid rgba(255,255,255,.15);
+    border-top-color:var(--accent);border-radius:50%;margin:0 auto 14px;
+    animation:spin 1s linear infinite;
+  }
+  @keyframes spin{to{transform:rotate(360deg)}}
+  .keybox{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap}
+  .keybox .k{font-size:30px;font-weight:800}
+  .badge{font-size:12px;padding:3px 10px;border-radius:999px;background:rgba(139,123,255,.25);color:var(--accent2)}
+  .prog{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}
+  .chip{
+    padding:8px 14px;border-radius:10px;font-weight:700;font-size:15px;
+    background:var(--card2);border:1px solid rgba(255,255,255,.08);
+  }
+  .chip.major{color:var(--major)} .chip.minor{color:var(--minor)} .chip.other{color:var(--other)}
+  table{width:100%;border-collapse:collapse;margin-top:6px;font-size:14px}
+  th,td{text-align:left;padding:9px 10px;border-bottom:1px solid rgba(255,255,255,.07)}
+  th{color:var(--muted);font-weight:600}
+  td.deg{font-weight:700;color:var(--accent2)}
+  .tablewrap{max-height:360px;overflow:auto;border-radius:10px}
+  .sec-title{font-size:13px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;margin-bottom:10px}
+  .err{color:#ff9a9a;background:rgba(255,80,80,.1);padding:12px 14px;border-radius:10px}
+  .row{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}
+  .ghost{background:transparent;border:1px solid rgba(255,255,255,.2);color:var(--text);
+         padding:8px 14px;border-radius:10px;cursor:pointer;font-size:13px}
+  .ghost:hover{background:rgba(255,255,255,.08)}
+  footer{text-align:center;color:var(--muted);font-size:12px;margin-top:10px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>🎵 コード採譜</h1>
+    <p>曲をアップロードすると、コード進行をディグリーネームで書き起こします</p>
+  </header>
+
+  <div class="card">
+    <div class="drop" id="drop">
+      <div class="icon">🎧</div>
+      <div>ここに曲をドラッグ＆ドロップ、またはクリックして選択</div>
+      <div class="name" id="fname"></div>
+      <input type="file" id="file" accept="audio/*,.mp3,.wav,.flac,.ogg,.m4a,.aac" class="hidden">
+    </div>
+
+    <div class="opts">
+      <div class="opt">
+        <label>キー（空欄で自動検出）</label>
+        <input type="text" id="key" placeholder="例: C / Am / F#m / Bb major">
+      </div>
+      <div class="opt">
+        <label>検出モード</label>
+        <select id="mode">
+          <option value="standard">標準（メジャー/マイナー/dim/aug）</option>
+          <option value="simple">シンプル（メジャー/マイナーのみ・安定）</option>
+          <option value="seventh">7th込み（7・m7・M7も検出）</option>
+        </select>
+      </div>
+      <div class="opt" style="grid-column:1/-1">
+        <label>安定度（高いほどコードが変わりにくい）: <span id="pval">0.3</span></label>
+        <input type="range" id="penalty" min="0.1" max="0.8" step="0.05" value="0.3">
+      </div>
+    </div>
+
+    <button class="btn" id="go" disabled>解析する</button>
+  </div>
+
+  <div class="card loading hidden" id="loading">
+    <div class="spinner"></div>
+    <div>解析中…</div>
+    <div style="color:var(--muted);font-size:13px;margin-top:6px">曲の長さによって数秒〜数十秒かかります</div>
+  </div>
+
+  <div class="card hidden" id="result">
+    <div class="row" style="margin-bottom:18px">
+      <div class="keybox">
+        <span class="sec-title" style="margin:0">キー</span>
+        <span class="k" id="keyname">—</span>
+        <span class="badge" id="keysrc"></span>
+      </div>
+      <button class="ghost" id="csv">CSVをダウンロード</button>
+    </div>
+
+    <div class="sec-title">進行（ディグリー）</div>
+    <div class="prog" id="prog"></div>
+
+    <div class="sec-title" style="margin-top:22px">タイムライン</div>
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th>区間</th><th>コード</th><th>ディグリー</th></tr></thead>
+        <tbody id="tbody"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="card err hidden" id="error"></div>
+
+  <footer>chord-transcriber · ローカルで動作します</footer>
+</div>
+
+<script>
+const $ = s => document.querySelector(s);
+const drop=$('#drop'), fileInput=$('#file'), fname=$('#fname'), go=$('#go');
+let selected=null, lastResult=null;
+
+drop.addEventListener('click',()=>fileInput.click());
+fileInput.addEventListener('change',e=>setFile(e.target.files[0]));
+['dragover','dragenter'].forEach(ev=>drop.addEventListener(ev,e=>{e.preventDefault();drop.classList.add('over')}));
+['dragleave'].forEach(ev=>drop.addEventListener(ev,e=>{e.preventDefault();drop.classList.remove('over')}));
+drop.addEventListener('drop',e=>{e.preventDefault();drop.classList.remove('over');if(e.dataTransfer.files[0])setFile(e.dataTransfer.files[0]);});
+
+function setFile(f){ if(!f)return; selected=f; fname.textContent='選択中: '+f.name; go.disabled=false; }
+
+$('#penalty').addEventListener('input',e=>$('#pval').textContent=e.target.value);
+
+go.addEventListener('click',async()=>{
+  if(!selected)return;
+  showLoading(true); hide('#result'); hide('#error');
+  const fd=new FormData();
+  fd.append('file',selected);
+  fd.append('mode',$('#mode').value);
+  fd.append('key',$('#key').value);
+  fd.append('penalty',$('#penalty').value);
+  try{
+    const r=await fetch('/analyze',{method:'POST',body:fd});
+    const data=await r.json();
+    if(!r.ok||data.error){ throw new Error(data.error||('HTTP '+r.status)); }
+    lastResult=data; render(data);
+  }catch(err){ showError(err.message); }
+  finally{ showLoading(false); }
+});
+
+function qualClass(deg){
+  if(/dim|aug|b5/.test(deg)) return 'other';
+  if(/m(?!aj)/.test(deg)) return 'minor';
+  return 'major';
+}
+
+function render(d){
+  $('#keyname').textContent=d.key_name;
+  $('#keysrc').textContent=d.key_given?'指定':'自動検出';
+  const prog=$('#prog'); prog.innerHTML='';
+  d.segments.forEach(s=>{
+    const c=document.createElement('span');
+    c.className='chip '+qualClass(s.degree);
+    c.textContent=s.degree;
+    prog.appendChild(c);
+  });
+  const tb=$('#tbody'); tb.innerHTML='';
+  d.segments.forEach(s=>{
+    const tr=document.createElement('tr');
+    const td1=document.createElement('td'); td1.textContent=s.start_str+' – '+s.end_str;
+    const td2=document.createElement('td'); td2.textContent=s.chord;
+    const td3=document.createElement('td'); td3.className='deg'; td3.textContent=s.degree;
+    tr.append(td1,td2,td3); tb.appendChild(tr);
+  });
+  show('#result');
+}
+
+$('#csv').addEventListener('click',()=>{
+  if(!lastResult)return;
+  let csv='start,end,chord,degree\n';
+  lastResult.segments.forEach(s=>{ csv+=s.start_str+','+s.end_str+','+s.chord+','+s.degree+'\n'; });
+  const blob=new Blob([csv],{type:'text/csv'});
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(blob);
+  a.download=(lastResult.filename||'chords')+'.csv';
+  a.click();
+});
+
+function showLoading(b){ b?show('#loading'):hide('#loading'); go.disabled=b; }
+function showError(m){ const e=$('#error'); e.textContent='エラー: '+m; show('#error'); }
+function show(s){ $(s).classList.remove('hidden'); }
+function hide(s){ $(s).classList.add('hidden'); }
+</script>
+</body>
+</html>

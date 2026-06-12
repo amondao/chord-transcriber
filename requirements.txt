@@ -1,0 +1,8 @@
+# Web アプリ本番用の依存（Docker / クラウド向け）
+flask>=3.0
+numpy>=1.24
+scipy>=1.10
+soundfile>=0.12
+gunicorn>=21.0
+# ※ m4a/aac 等の変換には ffmpeg が必要。Docker では apt で導入済み。
+#    ローカル(Windows)では gunicorn は動かないため、開発は `python webapp.py` を使う。
