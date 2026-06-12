@@ -10,7 +10,7 @@ chord_transcribe.py
       非対応フォーマット(m4a等)は ffmpeg があれば自動変換して読み込む。
 
 処理の流れ:
-  1. 音声を読み込み 22.05kHz モノラルに変換
+  1. 音声を読み込み 11kHz モノラルに変換（長い曲は先頭のみ）
   2. STFT からクロマグラム（12音名ごとのエネルギー）を計算
   3. コードテンプレートと照合し、Viterbi で時間方向に平滑化
   4. Krumhansl-Schmuckler 法でキーを自動推定
@@ -36,7 +36,8 @@ from scipy.signal import stft, resample_poly
 # --------------------------------------------------------------------------
 # 定数
 # --------------------------------------------------------------------------
-TARGET_SR = 22050
+TARGET_SR = 11025          # 解析用サンプリングレート（コード検出には十分な音域）
+MAX_ANALYZE_SEC = 300      # 解析する最大秒数（無料枠のメモリ対策。超過分は先頭を使用）
 PITCH_NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
 
 # コードの構成音（Cルート=0 を基準としたピッチクラス）
@@ -87,6 +88,10 @@ def load_audio(path, target_sr=TARGET_SR):
         g = gcd(int(sr), int(target_sr))
         y = resample_poly(y, target_sr // g, sr // g)
         sr = target_sr
+    # 無料枠のメモリ対策：長すぎる曲は先頭 MAX_ANALYZE_SEC 秒だけ解析する
+    max_samples = int(MAX_ANALYZE_SEC * sr)
+    if y.size > max_samples:
+        y = y[:max_samples]
     peak = np.max(np.abs(y)) if y.size else 0.0
     if peak > 0:
         y = y / peak                     # 振幅正規化
@@ -115,7 +120,7 @@ def _load_via_ffmpeg(path, target_sr):
 # --------------------------------------------------------------------------
 # クロマグラム
 # --------------------------------------------------------------------------
-def compute_chroma(y, sr, n_fft=8192, hop=2048, fmin=55.0, fmax=2200.0):
+def compute_chroma(y, sr, n_fft=4096, hop=1024, fmin=55.0, fmax=2200.0):
     """STFT から 12 次元クロマグラムを計算する。
 
     返り値:
@@ -125,7 +130,9 @@ def compute_chroma(y, sr, n_fft=8192, hop=2048, fmin=55.0, fmax=2200.0):
     """
     f, t, Z = stft(y, fs=sr, window='hann', nperseg=n_fft,
                    noverlap=n_fft - hop, boundary=None, padded=False)
-    power = np.abs(Z) ** 2
+    # メモリ削減：パワーを float32 にし、大きな複素STFT配列は即解放する
+    power = (np.abs(Z) ** 2).astype(np.float32)
+    del Z
 
     # 解析対象の周波数だけ残す
     band = (f >= fmin) & (f <= fmax) & (f > 0)
@@ -136,7 +143,7 @@ def compute_chroma(y, sr, n_fft=8192, hop=2048, fmin=55.0, fmax=2200.0):
     midi = 69 + 12 * np.log2(f / 440.0)
     pc = np.mod(np.round(midi).astype(int), 12)
 
-    chroma = np.zeros((12, power.shape[1]))
+    chroma = np.zeros((12, power.shape[1]), dtype=np.float32)
     for k in range(12):
         mask = pc == k
         if np.any(mask):
@@ -314,7 +321,7 @@ def fmt_time(sec):
 # メイン処理
 # --------------------------------------------------------------------------
 def transcribe(path, qualities, key=None, trans_penalty=0.3,
-               min_dur=0.4, n_fft=8192, hop=2048):
+               min_dur=0.4, n_fft=4096, hop=1024):
     y, sr = load_audio(path)
     duration = len(y) / sr
 
