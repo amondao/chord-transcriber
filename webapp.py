@@ -26,6 +26,9 @@ QUALITY_SETS = {
     'simple':   ['maj', 'min'],
     'seventh':  ['maj', 'min', 'dim', 'aug', 'sus4', 'sus2',
                  '7', 'min7', 'maj7', 'm7b5', 'dim7'],
+    'full':     ['maj', 'min', 'dim', 'aug', 'sus4', 'sus2',
+                 '7', 'min7', 'maj7', 'm7b5', 'dim7',
+                 'add9', '9', 'maj9', 'm9'],
 }
 
 HERE = os.path.dirname(os.path.abspath(__file__))

@@ -53,12 +53,17 @@ CHORD_DEFS = {
     'sus2': [0, 2, 7],
     'm7b5': [0, 3, 6, 10],
     'dim7': [0, 3, 6, 9],
+    'add9': [0, 2, 4, 7],
+    '9':    [0, 2, 4, 7, 10],
+    'maj9': [0, 2, 4, 7, 11],
+    'm9':   [0, 2, 3, 7, 10],
 }
 # 表記用サフィックス（実音名・ディグリー共通）
 QUALITY_SUFFIX = {
     'maj': '', 'min': 'm', 'dim': 'dim', 'aug': 'aug',
     '7': '7', 'min7': 'm7', 'maj7': 'M7',
     'sus4': 'sus4', 'sus2': 'sus2', 'm7b5': 'm7(b5)', 'dim7': 'dim7',
+    'add9': 'add9', '9': '9', 'maj9': 'M9', 'm9': 'm9',
 }
 
 # ルートからの半音差 → ディグリー（ローマ数字）。ASCII の b/# で表記。
@@ -125,6 +130,21 @@ def _load_via_ffmpeg(path, target_sr):
 # --------------------------------------------------------------------------
 # クロマグラム
 # --------------------------------------------------------------------------
+def _band_chroma(power, f, fmin, fmax):
+    """指定した周波数帯のパワーを 12 ピッチクラスへ集約する。"""
+    band = (f >= fmin) & (f <= fmax) & (f > 0)
+    fb = f[band]
+    pw = power[band, :]
+    midi = 69 + 12 * np.log2(fb / 440.0)
+    pc = np.mod(np.round(midi).astype(int), 12)
+    chroma = np.zeros((12, pw.shape[1]), dtype=np.float32)
+    for k in range(12):
+        mask = pc == k
+        if np.any(mask):
+            chroma[k, :] = pw[mask, :].sum(axis=0)
+    return chroma
+
+
 def compute_chroma(y, sr, n_fft=4096, hop=1024, fmin=55.0, fmax=2200.0):
     """STFT から 12 次元クロマグラムを計算する。
 
@@ -139,26 +159,14 @@ def compute_chroma(y, sr, n_fft=4096, hop=1024, fmin=55.0, fmax=2200.0):
     power = (np.abs(Z) ** 2).astype(np.float32)
     del Z
 
-    # 解析対象の周波数だけ残す
-    band = (f >= fmin) & (f <= fmax) & (f > 0)
-    f = f[band]
-    power = power[band, :]
-
-    # 各周波数ビンを最も近いピッチクラスへ割り当て
-    midi = 69 + 12 * np.log2(f / 440.0)
-    pc = np.mod(np.round(midi).astype(int), 12)
-
-    chroma = np.zeros((12, power.shape[1]), dtype=np.float32)
-    for k in range(12):
-        mask = pc == k
-        if np.any(mask):
-            chroma[k, :] = power[mask, :].sum(axis=0)
+    chroma = _band_chroma(power, f, fmin, fmax)
+    bass = _band_chroma(power, f, 40.0, 250.0)   # 分数コードのベース音検出用（低音域）
 
     energy = chroma.sum(axis=0)
     chroma = np.log1p(chroma)                 # 対数圧縮でピークをならす
     norm = np.linalg.norm(chroma, axis=0)
     norm[norm == 0] = 1.0
-    return chroma / norm, energy, t
+    return chroma / norm, energy, t, bass
 
 
 # --------------------------------------------------------------------------
@@ -301,6 +309,12 @@ def to_degree(root_pc, quality, tonic, mode):
     return table[interval] + QUALITY_SUFFIX[quality]
 
 
+def degree_root(pc, tonic, mode):
+    """ピッチクラスをキー基準のローマ数字（度数のみ）に変換。分数コードのベース用。"""
+    table = DEGREE_MAJOR if mode == 'major' else DEGREE_MINOR
+    return table[(pc - tonic) % 12]
+
+
 def parse_key(text):
     """'C' / 'Am' / 'F#m' / 'Bb major' などを (tonic_pc, mode) に変換。"""
     m = re.match(r'^\s*([A-Ga-g])([#b♯♭]?)\s*(.*)$', text)
@@ -330,7 +344,7 @@ def transcribe(path, qualities, key=None, trans_penalty=0.3,
     y, sr = load_audio(path)
     duration = len(y) / sr
 
-    chroma, energy, times = compute_chroma(y, sr, n_fft=n_fft, hop=hop)
+    chroma, energy, times, bass = compute_chroma(y, sr, n_fft=n_fft, hop=hop)
     if chroma.shape[1] == 0:
         raise RuntimeError("音声が短すぎて解析できません。")
 
@@ -341,14 +355,25 @@ def transcribe(path, qualities, key=None, trans_penalty=0.3,
     path_idx = viterbi_smooth(sim, trans_penalty)
     segments = segmentize(path_idx, times, min_dur)
 
+    times_arr = np.asarray(times)
     rows = []
     for s0, s1, ci in segments:
         root, q = labels[ci]
-        rows.append({
-            'start': s0, 'end': s1,
-            'chord': chord_name(root, q),
-            'degree': to_degree(root, q, tonic, mode),
-        })
+        name = chord_name(root, q)
+        degree = to_degree(root, q, tonic, mode)
+
+        # 分数コード：区間内のベース音を推定し、ルート以外の構成音なら /ベース を付ける
+        fr = (times_arr >= s0) & (times_arr < s1)
+        if np.any(fr):
+            bass_sum = bass[:, fr].sum(axis=1)
+            if bass_sum.sum() > 0:
+                bass_pc = int(np.argmax(bass_sum))
+                chord_pcs = {(root + iv) % 12 for iv in CHORD_DEFS[q]}
+                if bass_pc != root and bass_pc in chord_pcs:
+                    name += '/' + PITCH_NAMES[bass_pc]
+                    degree += '/' + degree_root(bass_pc, tonic, mode)
+
+        rows.append({'start': s0, 'end': s1, 'chord': name, 'degree': degree})
     return {
         'duration': duration,
         'tonic': tonic, 'mode': mode, 'key_given': key is not None,
@@ -394,6 +419,8 @@ def main(argv=None):
                    help='7th コード(7, m7, M7)も検出対象に加える')
     p.add_argument('--simple', action='store_true',
                    help='メジャー/マイナーの三和音だけで検出する')
+    p.add_argument('--full', action='store_true',
+                   help='7th に加えテンション(add9, 9, M9, m9)も検出する')
     p.add_argument('--penalty', type=float, default=0.3,
                    help='コード変化のしにくさ (大きいほど安定。既定 0.3)')
     p.add_argument('--min-dur', type=float, default=0.4,
@@ -403,6 +430,10 @@ def main(argv=None):
 
     if args.simple:
         qualities = ['maj', 'min']
+    elif args.full:
+        qualities = ['maj', 'min', 'dim', 'aug', 'sus4', 'sus2',
+                     '7', 'min7', 'maj7', 'm7b5', 'dim7',
+                     'add9', '9', 'maj9', 'm9']
     elif args.seventh:
         qualities = ['maj', 'min', 'dim', 'aug', 'sus4', 'sus2',
                      '7', 'min7', 'maj7', 'm7b5', 'dim7']
