@@ -22,9 +22,10 @@ app.config['MAX_CONTENT_LENGTH'] = 80 * 1024 * 1024  # アップロード上限 
 
 # 検出モード → コード種テンプレート
 QUALITY_SETS = {
-    'standard': ['maj', 'min', 'dim', 'aug'],
+    'standard': ['maj', 'min', 'dim', 'aug', 'sus4', 'sus2'],
     'simple':   ['maj', 'min'],
-    'seventh':  ['maj', 'min', 'dim', 'aug', '7', 'min7', 'maj7'],
+    'seventh':  ['maj', 'min', 'dim', 'aug', 'sus4', 'sus2',
+                 '7', 'min7', 'maj7', 'm7b5', 'dim7'],
 }
 
 HERE = os.path.dirname(os.path.abspath(__file__))

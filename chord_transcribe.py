@@ -49,11 +49,16 @@ CHORD_DEFS = {
     '7':    [0, 4, 7, 10],
     'min7': [0, 3, 7, 10],
     'maj7': [0, 4, 7, 11],
+    'sus4': [0, 5, 7],
+    'sus2': [0, 2, 7],
+    'm7b5': [0, 3, 6, 10],
+    'dim7': [0, 3, 6, 9],
 }
 # 表記用サフィックス（実音名・ディグリー共通）
 QUALITY_SUFFIX = {
     'maj': '', 'min': 'm', 'dim': 'dim', 'aug': 'aug',
     '7': '7', 'min7': 'm7', 'maj7': 'M7',
+    'sus4': 'sus4', 'sus2': 'sus2', 'm7b5': 'm7(b5)', 'dim7': 'dim7',
 }
 
 # ルートからの半音差 → ディグリー（ローマ数字）。ASCII の b/# で表記。
@@ -399,9 +404,10 @@ def main(argv=None):
     if args.simple:
         qualities = ['maj', 'min']
     elif args.seventh:
-        qualities = ['maj', 'min', 'dim', 'aug', '7', 'min7', 'maj7']
+        qualities = ['maj', 'min', 'dim', 'aug', 'sus4', 'sus2',
+                     '7', 'min7', 'maj7', 'm7b5', 'dim7']
     else:
-        qualities = ['maj', 'min', 'dim', 'aug']
+        qualities = ['maj', 'min', 'dim', 'aug', 'sus4', 'sus2']
 
     try:
         result = transcribe(args.audio, qualities, key=args.key,
